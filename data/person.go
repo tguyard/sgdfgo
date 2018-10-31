@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/imdario/mergo"
 	"github.com/mongodb/mongo-go-driver/bson"
 	"github.com/mongodb/mongo-go-driver/mongo/updateopt"
 )
@@ -45,6 +46,7 @@ type Contact struct {
 
 type Person struct {
 	ID            int `bson:"_id"`
+	ScrapDate     time.Time
 	Structure     int
 	Function      string
 	Identity      Contact
@@ -67,17 +69,27 @@ type Person struct {
 }
 
 func (p Person) Save() error {
+	old, err := NewPersonByID(p.ID)
+	if err != nil {
+		err = mergo.Merge(&p, old)
+		if err != nil {
+			return err
+		}
+	}
+
 	data := map[string]interface{}{
 		"$set": &p,
 	}
-	_, err := db("persons").UpdateOne(context.Background(),
+	_, err = db("persons").UpdateOne(context.Background(),
 		bson.NewDocument(
 			bson.EC.Int64("_id", int64(p.ID)),
 		), data, updateopt.Upsert(true))
 	return err
 }
 
-func NewPersonById(id int) (Person, error) {
+// mongo: no documents in result
+
+func NewPersonByID(id int) (Person, error) {
 	result := db("persons").FindOne(
 		context.Background(),
 		bson.NewDocument(

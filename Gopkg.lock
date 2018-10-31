@@ -68,6 +68,12 @@
   revision = "2e65f85255dbc3072edf28d6b5b8efc472979f5a"
 
 [[projects]]
+  name = "github.com/imdario/mergo"
+  packages = ["."]
+  revision = "9f23e2d6bd2a77f959b2bf6acdbefd708a83a4a4"
+  version = "v0.3.6"
+
+[[projects]]
   name = "github.com/kennygrant/sanitize"
   packages = ["."]
   revision = "06ec0d0dbcd497d01e5189b16f5263f712e61a8e"
@@ -148,6 +154,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "bd4a311f83cc1691c1677f852d8bda27fc8a0800fc02842d2c2a087569b7c4be"
+  inputs-digest = "0c23e71ffe9bf87285c0e2c72d316da9539d7d7ebfa554dec779ec6b7efab367"
   solver-name = "gps-cdcl"
   solver-version = 1

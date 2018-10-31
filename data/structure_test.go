@@ -9,9 +9,10 @@ import (
 )
 
 func TestStructure(t *testing.T) {
+	databaseName = "sgdftest"
 	assert := assert.New(t)
 
-	_, err := getClient().Database("sgdfgo").RunCommand(
+	_, err := getClient().Database(databaseName).RunCommand(
 		context.Background(),
 		bson.NewDocument(bson.EC.Int32("dropDatabase", 1)),
 	)
@@ -27,7 +28,7 @@ func TestStructure(t *testing.T) {
 		ParentID:   2,
 		Speciality: 3,
 		Type:       4,
-		Url:        "url",
+		URL:        "url",
 	}
 
 	err = s.Save()
@@ -36,7 +37,7 @@ func TestStructure(t *testing.T) {
 		return
 	}
 
-	s1, err := NewStructureById(1)
+	s1, err := NewStructureByID(1)
 	if err != nil {
 		assert.Fail(err.Error())
 		return
@@ -48,5 +49,5 @@ func TestStructure(t *testing.T) {
 	assert.Equal(s.ParentID, s1.ParentID)
 	assert.Equal(s.Speciality, s1.Speciality)
 	assert.Equal(s.Type, s1.Type)
-	assert.Equal(s.Url, s1.Url)
+	assert.Equal(s.URL, s1.URL)
 }

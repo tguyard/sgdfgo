@@ -9,9 +9,10 @@ import (
 )
 
 func TestPerson(t *testing.T) {
+	databaseName = "sgdftest"
 	assert := assert.New(t)
 
-	_, err := getClient().Database("sgdfgo").RunCommand(
+	_, err := getClient().Database(databaseName).RunCommand(
 		context.Background(),
 		bson.NewDocument(bson.EC.Int32("dropDatabase", 1)),
 	)
@@ -42,7 +43,7 @@ func TestPerson(t *testing.T) {
 		return
 	}
 
-	s1, err := NewPersonById(1)
+	s1, err := NewPersonByID(1)
 	if err != nil {
 		assert.Fail(err.Error())
 		return

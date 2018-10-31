@@ -7,6 +7,7 @@ import (
 )
 
 var client *mongo.Client
+var databaseName = "sgdfgo"
 
 func getClient() *mongo.Client {
 	if client == nil {
@@ -21,5 +22,5 @@ func getClient() *mongo.Client {
 }
 
 func db(name string) *mongo.Collection {
-	return getClient().Database("sgdfgo").Collection(name)
+	return getClient().Database(databaseName).Collection(name)
 }

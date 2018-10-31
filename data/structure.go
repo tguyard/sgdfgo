@@ -2,6 +2,7 @@ package data
 
 import (
 	"context"
+	"time"
 
 	"github.com/mongodb/mongo-go-driver/bson"
 )
@@ -24,7 +25,7 @@ var StructureNames = map[string]int{
 	"Unité Vent du Large": 1202,
 }
 
-var StructureId = map[int]string{
+var StructureIDs = map[int]string{
 	1211: "Autres",
 	1205: "Centre National",
 	1200: "Groupe",
@@ -48,13 +49,15 @@ var SpecialityNames = map[string]int{
 }
 
 type Structure struct {
-	ID          int `bson:"_id"`
+	ID        int `bson:"_id"`
+	ScrapDate time.Time
+
 	Name        string
 	Type        int
 	ParentID    int
 	Speciality  int
 	Email       string
-	Url         string
+	URL         string
 	Tel         string
 	Lat         float64
 	Long        float64
@@ -70,7 +73,7 @@ func (s Structure) Save() error {
 	return err
 }
 
-func NewStructureById(id int) (Structure, error) {
+func NewStructureByID(id int) (Structure, error) {
 	result := db("structures").FindOne(
 		context.Background(),
 		bson.NewDocument(
@@ -98,22 +101,27 @@ func (s Structure) TypeName() string {
 	return "Autre"
 }
 
+// IsNational TODO
 func (s Structure) IsNational() bool {
 	return s.Type == 1205 || s.Type == 1206 || s.Type == 1207
 }
 
+// IsTer TODO
 func (s Structure) IsTer() bool {
 	return s.Type == 1204 || s.Type == 1203
 }
 
+// IsGroup TODO
 func (s Structure) IsGroup() bool {
 	return s.Type == 1200 || s.Type == 1201
 }
 
+// IsUnit TODO
 func (s Structure) IsUnit() bool {
 	return s.Type == 1212 || s.Type == 1210 || s.Type == 1209 || s.Type == 1199 || s.Type == 1208 || s.Type == 1202
 }
 
+// IsOther TODO
 func (s Structure) IsOther() bool {
 	return s.Type == 1211
 }

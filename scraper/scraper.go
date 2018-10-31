@@ -1,6 +1,7 @@
 package scraper
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -13,12 +14,15 @@ import (
 	"github.com/sgdfgo/data"
 )
 
+// Scraper TODO
 type Scraper struct {
-	baseUrl                   string
+	baseURL                   string
 	c                         *colly.Collector
-	structureUrl, adherentUrl string
+	structureURL, adherentURL string
+	callbackError             error
 }
 
+// New TODO
 func New() *Scraper {
 	c := colly.NewCollector(
 		colly.UserAgent("Mozilla/5.0 (Windows NT 6.1; rv:31.0) Gecko/20100101 Firefox/61.0"),
@@ -39,19 +43,44 @@ func New() *Scraper {
 	})
 
 	return &Scraper{
-		baseUrl: "https://intranet.sgdf.fr",
+		baseURL: "https://intranet.sgdf.fr",
 		c:       c,
 	}
 }
 
-func (s *Scraper) Connect(login, password string) {
-	startUrl := s.baseUrl + "/Specialisation/Sgdf/Default.aspx"
+func (s *Scraper) consumeErr() error {
+	err := s.callbackError
+	s.callbackError = nil
+	return err
+}
+
+// Connect TODO
+func (s *Scraper) Connect(login, password string) (int, error) {
+	if s.callbackError != nil {
+		return -1, s.consumeErr()
+	}
+	startURL := s.baseURL + "/Specialisation/Sgdf/Default.aspx"
+	structureID := -1
 
 	s.c.OnHTML("#ctl00__hlVoirFicheStructure[href]", func(e *colly.HTMLElement) {
-		s.structureUrl = e.Attr("href")
+		s.structureURL = e.Attr("href")
 	})
 	s.c.OnHTML("#ctl00__hlVoirFicherAdherent[href]", func(e *colly.HTMLElement) {
-		s.adherentUrl = e.Attr("href")
+		s.adherentURL = e.Attr("href")
+	})
+
+	s.c.OnHTML("#ctl00__ddDelegations", func(e *colly.HTMLElement) {
+		option := e.ChildText("option[selected=selected]")
+		re := regexp.MustCompile("@ *([0-9]+)$")
+		if matches := re.FindStringSubmatch(option); len(matches) == 2 {
+			structureID, _ = strconv.Atoi(matches[1])
+		}
+	})
+
+	s.c.OnHTML("body", func(e *colly.HTMLElement) {
+		if strings.Contains(e.DOM.Text(), "Erreur inconnue") {
+			s.callbackError = errors.New("Intranet ERROR")
+		}
 	})
 
 	//
@@ -60,11 +89,8 @@ func (s *Scraper) Connect(login, password string) {
 	s.c.OnRequest(func(r *colly.Request) {
 		fmt.Println("Connexion", r.URL)
 	})
-	s.c.OnResponse(func(r *colly.Response) {
-		// fmt.Println("Response", string(r.Body))
-	})
 
-	s.c.Post(startUrl, map[string]string{
+	err := s.c.Post(startURL, map[string]string{
 		"__VIEWSTATE":                               "/wEPZwUPOGQ2M2E4YzIwZjI0OWQ249N596drjy0+MDT+x2hPLl4PC9o=",
 		"__VIEWSTATEGENERATOR":                      "F4403698",
 		"__EVENTTARGET":                             "",
@@ -75,16 +101,25 @@ func (s *Scraper) Connect(login, password string) {
 		"ctl00$MainContent$_btnValider":             "Se+connecter",
 		"ctl00$_hidReferenceStatistiqueUtilisation": "-1",
 	})
+
+	if structureID == -1 {
+		return -1, errors.New("Could not find the structure ID")
+	}
+	if s.callbackError != nil {
+		return -1, s.consumeErr()
+	}
+
+	return structureID, err
 }
 
-func atoi(val string) int {
+func (s Scraper) atoi(val string) int {
 	ret, err := strconv.Atoi(val)
 	if err != nil {
-		panic(err)
+		s.callbackError = err
 	}
 	return ret
 }
-func atof(val string) float64 {
+func (s Scraper) atof(val string) float64 {
 	if val == "" {
 		return 0.
 	}
@@ -97,16 +132,23 @@ func atof(val string) float64 {
 
 	ret, err := strconv.ParseFloat(val, 64)
 	if err != nil {
-		panic(err)
+		s.callbackError = err
 	}
 	return ret
 }
 
-func (s *Scraper) ScrapStructures() {
-	s.visitStructurePage(s.structureUrl)
+func (s *Scraper) ScrapStructures() error {
+	if s.callbackError != nil {
+		return s.consumeErr()
+	}
+	return s.visitStructurePage(s.structureURL)
 }
 
-func (s *Scraper) visitStructurePage(url string) {
+func (s *Scraper) visitStructurePage(url string) error {
+	if s.callbackError != nil {
+		return s.consumeErr()
+	}
+
 	c := s.c.Clone()
 
 	c.OnHTML("body", func(e *colly.HTMLElement) {
@@ -115,56 +157,68 @@ func (s *Scraper) visitStructurePage(url string) {
 			postData[e.Attr("name")] = e.Attr("value")
 		})
 
-		parentId := e.ChildText("#ctl00_ctl00_MainContent_TabsContent_TabContainerResumeStructure__tabHierarche__gvParents tr.ligne1 #ctl00_ctl00_MainContent_TabsContent_TabContainerResumeStructure__tabHierarche__gvParents_ctl02__hlStructure")
+		parentID := e.ChildText("#ctl00_ctl00_MainContent_TabsContent_TabContainerResumeStructure__tabHierarche__gvParents tr.ligne1 #ctl00_ctl00_MainContent_TabsContent_TabContainerResumeStructure__tabHierarche__gvParents_ctl02__hlStructure")
 
 		var children []*colly.HTMLElement
 		e.ForEach("#ctl00_ctl00_MainContent_TabsContent_TabContainerResumeStructure__tabHierarche__gvEnfants tr:not(.entete)", func(index int, e *colly.HTMLElement) {
 			children = append(children, e)
 		})
 
-		s.parseStructureDetails(url, postData, atoi(parentId), children)
+		if intPID, err := strconv.Atoi(parentID); err != nil {
+			s.callbackError = err
+		} else if err = s.parseStructureDetails(url, postData, intPID, children); err != nil {
+			s.callbackError = err
+		}
 	})
 
 	c.OnRequest(func(r *colly.Request) {
 		fmt.Println("Structure", r.URL)
 	})
 
-	err := c.Visit(s.baseUrl + "/" + url)
-	if err != nil {
-		panic(err)
+	err := c.Visit(s.baseURL + "/" + url)
+	if s.callbackError != nil {
+		return s.consumeErr()
 	}
+	return err
 }
 
-func (s *Scraper) parseStructureDetails(url string, basePost map[string]string, parentId int, children []*colly.HTMLElement) {
+func (s *Scraper) parseStructureDetails(url string, basePost map[string]string, parentID int, children []*colly.HTMLElement) error {
+	if s.callbackError != nil {
+		return s.consumeErr()
+	}
+
 	c := s.c.Clone()
 
 	c.OnHTML("body", func(e *colly.HTMLElement) {
 		fmt.Println(e.ChildText("#ctl00_ctl00_MainContent_TabsContent_TabContainerResumeStructure__tabResume__resume__lblNom"))
 
 		structure := data.Structure{
-			ID:          atoi(e.ChildText("#ctl00_ctl00_MainContent_TabsContent_TabContainerResumeStructure__tabResume__resume__lblCodeStructure")),
+			ID:          s.atoi(e.ChildText("#ctl00_ctl00_MainContent_TabsContent_TabContainerResumeStructure__tabResume__resume__lblCodeStructure")),
+			ScrapDate:   time.Now(),
 			Email:       (e.ChildText("#ctl00_ctl00_MainContent_TabsContent_TabContainerResumeStructure__tabResume__resume__lblCourrier")),
 			Name:        (e.ChildText("#ctl00_ctl00_MainContent_TabsContent_TabContainerResumeStructure__tabResume__resume__lblNom")),
-			ParentID:    parentId,
+			ParentID:    parentID,
 			Speciality:  0,
 			Type:        data.StructureNames[e.ChildText("#ctl00_ctl00_MainContent_TabsContent_TabContainerResumeStructure__tabResume__resume__lblType")],
-			Url:         (e.ChildText("#ctl00_ctl00_MainContent_TabsContent_TabContainerResumeStructure__tabResume__resume__hlSiteWeb")),
-			Lat:         atof(e.ChildText("#ctl00_ctl00_MainContent_TabsContent_TabContainerResumeStructure__tabResume__resume__lblCoordonneesGPSLatitude")),
-			Long:        atof(e.ChildText("#ctl00_ctl00_MainContent_TabsContent_TabContainerResumeStructure__tabResume__resume__lblCoordonneesGPSLongitude")),
+			URL:         (e.ChildText("#ctl00_ctl00_MainContent_TabsContent_TabContainerResumeStructure__tabResume__resume__hlSiteWeb")),
+			Lat:         s.atof(e.ChildText("#ctl00_ctl00_MainContent_TabsContent_TabContainerResumeStructure__tabResume__resume__lblCoordonneesGPSLatitude")),
+			Long:        s.atof(e.ChildText("#ctl00_ctl00_MainContent_TabsContent_TabContainerResumeStructure__tabResume__resume__lblCoordonneesGPSLongitude")),
 			City:        (e.ChildText("#ctl00_ctl00_MainContent_TabsContent_TabContainerResumeStructure__tabResume__resume__resumeAdresse__lbVille")),
 			Country:     (e.ChildText("#ctl00_ctl00_MainContent_TabsContent_TabContainerResumeStructure__tabResume__resume__lblNom")),
 			Description: (e.ChildText("#ctl00_ctl00_MainContent_TabsContent_TabContainerResumeStructure__tabResume__resume__lblNom")),
 			Tel:         (e.ChildText("#ctl00_ctl00_MainContent_TabsContent_TabContainerResumeStructure__tabResume__resume__lblTelephone")),
 			Zip:         (e.ChildText("#ctl00_ctl00_MainContent_TabsContent_TabContainerResumeStructure__tabResume__resume__resumeAdresse__lbCodePostal")),
 		}
-		structure.Save()
+		if err := structure.Save(); err != nil {
+			s.callbackError = err
+		}
 
 		for _, child := range children {
 			if strings.Contains(child.ChildText("td:last-child"), "Aucune structure") {
 				continue
 			}
-			childUrl := child.ChildAttr("td:first-child a", "href")
-			if childUrl == "" {
+			childURL := child.ChildAttr("td:first-child a", "href")
+			if childURL == "" {
 				continue
 			}
 
@@ -191,17 +245,23 @@ func (s *Scraper) parseStructureDetails(url string, basePost map[string]string, 
 				}
 				if stype != -1 {
 					childStruct := data.Structure{
-						ID:         atoi(child.ChildText("td:first-child a")),
+						ID:         s.atoi(child.ChildText("td:first-child a")),
+						ScrapDate:  time.Now(),
 						Name:       childName,
 						ParentID:   structure.ID,
 						Speciality: 0,
 						Type:       stype,
 					}
-					childStruct.Save()
+					err := childStruct.Save()
+					if err != nil {
+						s.callbackError = err
+					}
 					continue
 				}
 			}
-			s.visitStructurePage("Specialisation/Sgdf/structures/" + childUrl)
+			if err := s.visitStructurePage("Specialisation/Sgdf/structures/" + childURL); err != nil {
+				s.callbackError = err
+			}
 		}
 	})
 
@@ -211,14 +271,25 @@ func (s *Scraper) parseStructureDetails(url string, basePost map[string]string, 
 
 	basePost["__EVENTTARGET"] = "ctl00$ctl00$MainContent$TabsContent$TabContainerResumeStructure"
 	basePost["__EVENTARGUMENT"] = "activeTabChanged:1"
-	err := c.Post(s.baseUrl+"/"+url, basePost)
-	if err != nil {
-		panic(err)
+
+	err := c.Post(s.baseURL+"/"+url, basePost)
+	if s.callbackError != nil {
+		return s.consumeErr()
 	}
+	return err
 }
 
-func (s *Scraper) ScrapExport() {
-	exported := s.Export()
+// ScrapExport TODO
+func (s *Scraper) ScrapExport() error {
+	if s.callbackError != nil {
+		return s.consumeErr()
+	}
+
+	exported, err := s.Export()
+	if err != nil {
+		return err
+	}
+
 	indexes := make(map[string]int)
 
 	for j, cell := range exported[0] {
@@ -232,7 +303,11 @@ func (s *Scraper) ScrapExport() {
 		if val == "" {
 			return 0
 		}
-		return atoi(val)
+		intval, err := strconv.Atoi(val)
+		if err != nil {
+			s.callbackError = err
+		}
+		return intval
 	}
 	getTime := func(name string, row []string) time.Time {
 		val := row[indexes[name]]
@@ -284,6 +359,7 @@ func (s *Scraper) ScrapExport() {
 
 		p := data.Person{
 			ID:        getInt("Individu.CodeAdherent", row),
+			ScrapDate: time.Now(),
 			Structure: getInt("Structure.CodeStructure", row),
 			Function:  get("Fonction.Code", row),
 			Identity:  getContact("Individu", row, data.Member),
@@ -330,7 +406,10 @@ func (s *Scraper) ScrapExport() {
 		if get("Mere.Nom", row) != "" {
 			p.Contacts = append(p.Contacts, getContact("Mere", row, data.Mother))
 		}
-		p.Save()
+		err := p.Save()
+		if err != nil {
+			return err
+		}
 
 		if p.Function != "170" && p.Function != "110" &&
 			p.Function != "110M" && p.Function != "120" &&
@@ -340,11 +419,19 @@ func (s *Scraper) ScrapExport() {
 	}
 
 	for _, person := range formables {
-		s.AddFormation(person)
+		if err := s.AddFormation(person); err != nil {
+			return err
+		}
 	}
+
+	return s.consumeErr()
 }
 
-func (s *Scraper) AddFormation(person data.Person) {
+func (s *Scraper) AddFormation(person data.Person) error {
+	if s.callbackError != nil {
+		return s.consumeErr()
+	}
+
 	c := s.c.Clone()
 	url := "/Specialisation/Sgdf/adherents/RechercherAdherent.aspx?code=" + strconv.Itoa(person.ID)
 
@@ -354,7 +441,9 @@ func (s *Scraper) AddFormation(person data.Person) {
 			postData[e.Attr("name")] = e.Attr("value")
 		})
 
-		s.doAddFormation(e.Request.URL.String(), postData, person)
+		if err := s.doAddFormation(e.Request.URL.String(), postData, person); err != nil {
+			s.callbackError = err
+		}
 	})
 
 	c.OnRequest(func(r *colly.Request) {
@@ -363,23 +452,26 @@ func (s *Scraper) AddFormation(person data.Person) {
 
 	c.AllowURLRevisit = true
 
-	err := c.Visit(s.baseUrl + url)
-	if err != nil {
-		panic(err)
+	err := c.Visit(s.baseURL + url)
+	if s.callbackError != nil {
+		return s.consumeErr()
 	}
+	return err
 }
 
-func (s *Scraper) doAddFormation(fullUrl string, basePost map[string]string, person data.Person) {
+var typestr = "Type"
+
+func (s *Scraper) doAddFormation(fullURL string, basePost map[string]string, person data.Person) error {
+	if s.callbackError != nil {
+		return s.consumeErr()
+	}
+
 	c := s.c.Clone()
 
 	c.OnHTML("body", func(e *colly.HTMLElement) {
-		if strings.Contains(e.DOM.Text(), "Erreur inconnue") {
-			panic("Intranet error!")
-		}
-
 		formation := make([]data.Formation, 0)
 		e.ForEach("#ctl00_ctl00_MainContent_TabsContent_TabContainerResumeAdherent__tabFormations__formations__gvFormations__gvFormations tr", func(index int, tr *colly.HTMLElement) {
-			if tr.ChildText("td:first-child") == "Type" || tr.ChildText("th:first-child") == "Type" {
+			if tr.ChildText("td:first-child") == typestr || tr.ChildText("th:first-child") == typestr {
 				return
 			}
 			line := make([]string, 0)
@@ -404,7 +496,7 @@ func (s *Scraper) doAddFormation(fullUrl string, basePost map[string]string, per
 
 		diplomes := make([]data.Diploma, 0)
 		e.ForEach("#ctl00_ctl00_MainContent_TabsContent_TabContainerResumeAdherent__tabFormations__formations__gvDiplomes__gvDiplomes tr", func(index int, tr *colly.HTMLElement) {
-			if tr.ChildText("td:first-child") == "Type" {
+			if tr.ChildText("td:first-child") == typestr {
 				return
 			}
 			line := make([]string, 0)
@@ -428,22 +520,12 @@ func (s *Scraper) doAddFormation(fullUrl string, basePost map[string]string, per
 
 		person.Formations = formation
 		person.Diplomas = diplomes
-		person.Save()
+		s.callbackError = person.Save()
 	})
 
 	c.OnRequest(func(r *colly.Request) {
 		fmt.Println("FormationScp", r.URL)
-		// b, _ := ioutil.ReadAll(r.Body)
-		// fmt.Println("FormationScp", string(b))
-		// r.Headers.Add("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
-		// for key, value := range *r.Headers {
-		// 	fmt.Println(key, value)
-		// }
-		//
-		// fmt.Println(c.Cookies(r.URL.String()))
 	})
-
-	// basePost = make(map[string]string)
 	basePost["ctl00$MainContent$_btnExporter.y"] = "13"
 	basePost["ctl00$MainContent$_btnExporter.x"] = "65"
 	basePost["ctl00$ctl00$MainContent$TabsContent$TabContainerResumeAdherent$_tabDeclarationTam$_hidAfficherEditeurDeclarationTam"] = "0"
@@ -458,16 +540,21 @@ func (s *Scraper) doAddFormation(fullUrl string, basePost map[string]string, per
 	basePost["_eo_js_modules"] = ""
 	basePost["_eo_obj_inst"] = ""
 
-	err := c.Post(fullUrl, basePost)
-	if err != nil {
-		panic(err)
+	err := c.Post(fullURL, basePost)
+	if s.callbackError != nil {
+		return s.consumeErr()
 	}
+	return err
 }
 
-func (s *Scraper) Export() [][]string {
+// Export TODO
+func (s *Scraper) Export() ([][]string, error) {
 	c := s.c.Clone()
 	url := "/Specialisation/Sgdf/adherents/ExtraireAdherents.aspx"
 	var data [][]string
+	if s.callbackError != nil {
+		return data, s.consumeErr()
+	}
 
 	c.OnHTML("body", func(e *colly.HTMLElement) {
 		postData := make(map[string]string)
@@ -475,25 +562,27 @@ func (s *Scraper) Export() [][]string {
 			postData[e.Attr("name")] = e.Attr("value")
 		})
 
-		data = s.doExport(url, postData)
+		data, s.callbackError = s.doExport(url, postData)
 	})
 
 	c.OnRequest(func(r *colly.Request) {
 		fmt.Println("Export", r.URL)
 	})
 
-	err := c.Visit(s.baseUrl + url)
-	if err != nil {
-		panic(err)
+	err := c.Visit(s.baseURL + url)
+	if s.callbackError != nil {
+		return data, s.consumeErr()
 	}
-
-	return data
+	return data, err
 }
 
-func (s *Scraper) doExport(url string, basePost map[string]string) [][]string {
+func (s *Scraper) doExport(url string, basePost map[string]string) ([][]string, error) {
 	c := s.c.Clone()
-
 	data := make([][]string, 0)
+	if s.callbackError != nil {
+		return data, s.consumeErr()
+	}
+
 	c.OnHTML("table", func(e *colly.HTMLElement) {
 		e.ForEach("tr", func(index int, tr *colly.HTMLElement) {
 			row := make([]string, 0)
@@ -522,10 +611,6 @@ func (s *Scraper) doExport(url string, basePost map[string]string) [][]string {
 	basePost["_eo_js_modules"] = ""
 	basePost["_eo_obj_inst"] = ""
 
-	err := c.Post(s.baseUrl+url, basePost)
-	if err != nil {
-		panic(err)
-	}
-
-	return data
+	err := c.Post(s.baseURL+url, basePost)
+	return data, err
 }

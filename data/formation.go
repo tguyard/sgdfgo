@@ -285,3 +285,27 @@ func (q Formation) GetName() string {
 func (q Formation) GetSmallName() string {
 	return FormationSmallIds[q.ID]
 }
+
+func (q Formation) GetType() string {
+
+	if q.ID == 219 || q.ID == 265 || q.ID == 248 || q.ID == 263 || q.ID == 251 {
+		return "apf"
+	}
+
+	if q.ID == 245 || q.ID == 242 || q.ID == 52 || q.ID == 53 ||
+		q.ID == 241 || q.ID == 244 || q.ID == 267 || q.ID == 299 ||
+		q.ID == 271 || q.ID == 273 || q.ID == 229 || q.ID == 247 || q.ID == 246 ||
+		q.ID == 55 || q.ID == 232 || q.ID == 233 {
+		return "annimation"
+	}
+
+	if q.ID == 18 || q.ID == 228 {
+		return "health"
+	}
+
+	if q.ID == 274 || q.ID == 282 || q.ID == 77 || q.ID == 42 || q.ID == 253 ||
+		q.ID == 221 || q.ID == 243 {
+		return "direction"
+	}
+	return "none"
+}

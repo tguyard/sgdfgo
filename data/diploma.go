@@ -79,3 +79,16 @@ type Diploma struct {
 func (q Diploma) GetName() string {
 	return DiplomaIds[q.ID]
 }
+
+func (q Diploma) GetType() string {
+	if q.ID == 619 || q.ID == 603 {
+		return "health"
+	}
+	if q.ID == 73 || q.ID == 607 || q.ID == 614 {
+		return "annimation"
+	}
+	if q.ID == 140 || q.ID == 618 || q.ID == 626 {
+		return "direction"
+	}
+	return "none"
+}
